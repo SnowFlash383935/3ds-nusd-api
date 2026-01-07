@@ -21,35 +21,36 @@ export default async (req,res)=>{
   }catch(e){res.status(500).json({error:e.message})}
 };
 
-function parseTmdMinimal(buf) {
+function parseTmdMin(buf) {
   const v = new DataView(buf);
 
   /* 1. длина подписи */
   const sigType = v.getUint32(0, false);
   let sigLen = 4;
   switch (sigType) {
-    case 0x00010000: sigLen += 0x200 + 0x3C; break;
-    case 0x00010001: sigLen += 0x100 + 0x3C; break;
-    case 0x00010002: sigLen += 0x3C + 0x40; break;
-    default: sigLen = 0x100 + 0x3C; // старый без type
+    case 0x00010000: sigLen += 0x200 + 0x3C; break;  // RSA-4096
+    case 0x00010001: sigLen += 0x100 + 0x3C; break;  // RSA-2048
+    case 0x00010002: sigLen += 0x3C + 0x40; break;   // ECDSA
+    default: sigLen = 0x100 + 0x3C;                  // старый без type
   }
 
-  /* 2. заголовок всегда 0xC4 байта после подписи */
+  /* 2. заголовок (fixed 0xC4 байта) */
   const offHeader = sigLen;
-  const contentCount     = v.getUint16(offHeader + 0x9E, false);
-  const contentInfoCount = v.getUint16(offHeader + 0xA0, false);
+  const contentCount = v.getUint16(offHeader + 0x9E, false);   // +1DE hex
+  const titleVersion = v.getUint16(offHeader + 0x9C, false);   // +1DC hex
 
-  /* 3. прыгаем через ContentInfo (variable) */
-  let off = offHeader + 0xC4 + contentInfoCount * 0x24;
+  /* 3. Content Info Records (64×0x24 = 0x900) – прыгаем */
+  const offContentInfo = offHeader + 0xC4;          // +204 hex
+  const offChunks = offContentInfo + 0x900;         // +B04 hex
 
-  /* 4. читаем ContentChunk-и */
+  /* 4. читаем Content Chunk-и */
   const contents = [];
   for (let i = 0; i < contentCount; i++) {
+    const off = offChunks + i * 0x30;
     const cid  = v.getUint32(off, false);
     const size = v.getBigUint64(off + 8, false);
-    contents.push({cid: cid.toString(16).padStart(8, '0'), size: size.toString()});
-    off += 0x30;
+    contents.push({cid: cid.toString(16).padStart(8,'0'), size: size.toString()});
   }
-  const version = v.getUint16(offHeader + 0x9C, false);
-  return {version, contentCount, contents};
+
+  return {titleVersion, contentCount, contents};
 }
