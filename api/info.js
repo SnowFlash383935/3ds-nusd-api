@@ -21,24 +21,35 @@ export default async (req,res)=>{
   }catch(e){res.status(500).json({error:e.message})}
 };
 
-function parseTmdMinimal(buf){
-  const v=new DataView(buf);
-  const sigLen=(()=>{ const t=v.getUint32(0,false),base=4;
-    if(t===0x00010000)return base+0x200+0x3C;
-    if(t===0x00010001)return base+0x100+0x3C;
-    if(t===0x00010002)return base+0x3C+0x40;
-    return 0x100+0x3C; // старый без type
-  })();
-  const contentCount=v.getUint16(sigLen+0x9E,false);
-  const contentInfoCount=v.getUint16(sigLen+0xA0,false);
-  let off=sigLen+0xC4+contentInfoCount*0x24;
-  const contents=[];
-  for(let i=0;i<contentCount;i++){
-    const cid=v.getUint32(off,false);
-    const size=v.getBigUint64(off+8,false);
-    contents.push({cid:cid.toString(16).padStart(8,'0'), size: size.toString()});
-    off+=0x30;
+function parseTmdMinimal(buf) {
+  const v = new DataView(buf);
+
+  /* 1. длина подписи */
+  const sigType = v.getUint32(0, false);
+  let sigLen = 4;
+  switch (sigType) {
+    case 0x00010000: sigLen += 0x200 + 0x3C; break;
+    case 0x00010001: sigLen += 0x100 + 0x3C; break;
+    case 0x00010002: sigLen += 0x3C + 0x40; break;
+    default: sigLen = 0x100 + 0x3C; // старый без type
   }
-  const version=v.getUint16(sigLen+0x9C,false);
+
+  /* 2. заголовок всегда 0xC4 байта после подписи */
+  const offHeader = sigLen;
+  const contentCount     = v.getUint16(offHeader + 0x9E, false);
+  const contentInfoCount = v.getUint16(offHeader + 0xA0, false);
+
+  /* 3. прыгаем через ContentInfo (variable) */
+  let off = offHeader + 0xC4 + contentInfoCount * 0x24;
+
+  /* 4. читаем ContentChunk-и */
+  const contents = [];
+  for (let i = 0; i < contentCount; i++) {
+    const cid  = v.getUint32(off, false);
+    const size = v.getBigUint64(off + 8, false);
+    contents.push({cid: cid.toString(16).padStart(8, '0'), size: size.toString()});
+    off += 0x30;
+  }
+  const version = v.getUint16(offHeader + 0x9C, false);
   return {version, contentCount, contents};
 }
