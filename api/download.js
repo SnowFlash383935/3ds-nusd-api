@@ -2,6 +2,10 @@ import fetch from 'node-fetch';
 import {PassThrough} from 'stream';
 import yauzl from 'yauzl-promise';
 import {Buffer} from 'buffer';
+import https from 'https';
+
+// один агент на весь модуль
+const agent = new https.Agent({ rejectUnauthorized: false });
 
 const CDN = 'https://nus.cdn.c.shop.nintendowifi.net/ccs/download/';
 
@@ -19,7 +23,7 @@ export default async (req, res) => {
   try {
     /* ---------- 1. TMD ---------- */
     const tmdUrl = `${CDN}${id}/` + (ver ? `tmd.${ver}` : 'tmd');
-    const tmdBuf = await fetch(tmdUrl).then(r => {
+    const tmdBuf = await fetch(tmdUrl, {agent}).then(r => {
       if (!r.ok) throw new Error('TMD not found');
       return r.arrayBuffer();
     });
@@ -27,7 +31,7 @@ export default async (req, res) => {
     /* ---------- 2. Ticket ---------- */
     let cetkBuf = null;
     try {
-      cetkBuf = await fetch(`${CDN}${id}/cetk`).then(r => r.ok ? r.arrayBuffer() : null);
+      cetkBuf = await fetch(`${CDN}${id}/cetk`, {agent}).then(r => r.ok ? r.arrayBuffer() : null);
     } catch {}
 
     /* ---------- 3. Контенты ---------- */
@@ -45,7 +49,7 @@ export default async (req, res) => {
 
     for (const c of contents) {
       const url = `${CDN}${id}/${c.cid}`;
-      const stream = (await fetch(url)).body;
+      const stream = (await fetch(url, {agent})).body;
       await zip.addStream(stream, `${id}-${c.cid}.app`, {size: c.size});
     }
     await zip.end();
