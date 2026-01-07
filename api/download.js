@@ -29,7 +29,7 @@ export default async (req, res) => {
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${id}${ver ? '-v'+ver : ''}.zip"`);
 
-    const zip = new yauzl.ZipWriter(new PassThrough());
+    const zip = new yauzl.Zip(new PassThrough());
     zip.pipe(res);
 
     await zip.addBuffer(Buffer.from(tmdBuf), `${id}-tmd`);
