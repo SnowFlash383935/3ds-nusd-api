@@ -67,7 +67,9 @@ function parseTmd(buf) {
   const contentInfoCount = view.getUint16(offHeader + 0xA0, false);
   let off = offHeader + 0xC4;                  // пропускаем header
   off += contentInfoCount * 0x24;              // пропускаем ContentInfo
-
+  console.error('sigLen', sigLen,
+            'contentCount', contentCount,
+            'contentInfoCount', contentInfoCount);
   const arr = [];
   for (let i = 0; i < contentCount; i++) {
     const cid  = view.getUint32(off, false);
