@@ -61,16 +61,18 @@ export default async (req, res) => {
 /* ---------- простейший TMD-парсер ---------- */
 function parseTmd(buf) {
   const view = new DataView(buf);
-  let off = 0x04 + view.getUint32(0, false); // skip sig
-  off += 0xC4; // header
-  off += 64 * 0x24; // skip ContentInfo
-  const cnt = view.getUint16(off - 0x2E, false);
+  const sigLen = 0x04 + view.getUint32(0, false); // реальная длина подписи
+  let off = sigLen;                               // конец подписи
+  off += 0xC4;                                    // пропускаем header
+  off += 64 * 0x24;                               // пропускаем ContentInfo
+  const cnt = view.getUint16(sigLen + 0x9E, false); // contentCount в header
   const arr = [];
   for (let i = 0; i < cnt; i++) {
-    const cid = view.getUint32(off, false);
+    const cid  = view.getUint32(off, false);
     const size = view.getBigUint64(off + 8, false);
     arr.push({cid: cid.toString(16).padStart(8, '0'), size});
     off += 0x30;
   }
   return arr;
 }
+
