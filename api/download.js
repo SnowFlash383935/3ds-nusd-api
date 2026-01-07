@@ -33,7 +33,9 @@ export default async (req, res) => {
     try {
       cetkBuf = await fetch(`${CDN}${id}/cetk`, {agent}).then(r => r.ok ? r.arrayBuffer() : null);
     } catch {}
-
+    console.log('sigLen', sigLen,
+            'contentCount', contentCount,
+            'contentInfoCount', contentInfoCount);
     /* ---------- 3. Контенты ---------- */
     const contents = parseTmd(tmdBuf); // [{cid,size},…]
 
@@ -61,13 +63,17 @@ export default async (req, res) => {
 /* ---------- простейший TMD-парсер ---------- */
 function parseTmd(buf) {
   const view = new DataView(buf);
-  const sigLen = 0x04 + view.getUint32(0, false); // реальная длина подписи
-  let off = sigLen;                               // конец подписи
-  off += 0xC4;                                    // пропускаем header
-  off += 64 * 0x24;                               // пропускаем ContentInfo
-  const cnt = view.getUint16(sigLen + 0x9E, false); // contentCount в header
+  const sigLen = 4 + view.getUint32(0, false); // длина подписи
+  const offHeader = sigLen;                    // начало заголовка
+
+  const contentCount     = view.getUint16(offHeader + 0x9E, false);
+  const contentInfoCount = view.getUint16(offHeader + 0xA0, false);
+
+  let off = offHeader + 0xC4;                  // пропускаем header
+  off += contentInfoCount * 0x24;              // пропускаем ContentInfo
+
   const arr = [];
-  for (let i = 0; i < cnt; i++) {
+  for (let i = 0; i < contentCount; i++) {
     const cid  = view.getUint32(off, false);
     const size = view.getBigUint64(off + 8, false);
     arr.push({cid: cid.toString(16).padStart(8, '0'), size});
@@ -75,4 +81,3 @@ function parseTmd(buf) {
   }
   return arr;
 }
-
