@@ -21,7 +21,7 @@ export default async (req,res)=>{
   }catch(e){res.status(500).json({error:e.message})}
 };
 
-function parseTmdMin(buf) {
+function parseTmdMinimal(buf) {
   const v = new DataView(buf);
 
   /* 1. длина подписи */
