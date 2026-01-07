@@ -57,40 +57,34 @@ export default async (req, res) => {
 
 function parseTmd(buf) {
   const view = new DataView(buf);
-  
-  // Определяем длину подписи
+
+  // 1. определяем длину подписи
   const sigType = view.getUint32(0, false);
-  let sigLen = 4;
+  let sigLen = 4; // 4 байта type
   switch (sigType) {
     case 0x00010000: sigLen += 0x200 + 0x3C; break; // RSA-4096
     case 0x00010001: sigLen += 0x100 + 0x3C; break; // RSA-2048
     case 0x00010002: sigLen += 0x3C + 0x40; break;  // ECDSA
-    default: throw new Error('Unknown signature type');
+    default:
+      // старая подпись без type – сразу 0x100 + 0x3C
+      sigLen = 0x100 + 0x3C;
   }
 
-  // Заголовок TMD
+  // 2. читаем заголовок
   const offHeader = sigLen;
   const contentCount = view.getUint16(offHeader + 0x9E, false);
-  
-  // Пропускаем переменное количество ContentInfo записей
   const contentInfoCount = view.getUint16(offHeader + 0xA0, false);
-  let off = offHeader + 0xC4 + (contentInfoCount * 0x24);
+
+  // 3. прыгаем к ContentChunk-ам
+  let off = offHeader + 0xC4 + contentInfoCount * 0x24;
 
   const contents = [];
   for (let i = 0; i < contentCount; i++) {
-    const cid = view.getUint32(off, false);
-    const index = view.getUint16(off + 4, false);
-    const type = view.getUint16(off + 6, false);
+    const cid  = view.getUint32(off, false);
     const size = view.getBigUint64(off + 8, false);
-    
-    contents.push({
-      cid: cid.toString(16).padStart(8, '0'),
-      size,
-      index,
-      type
-    });
+    contents.push({cid: cid.toString(16).padStart(8, '0'), size});
     off += 0x30;
   }
-  
   return contents;
 }
+
