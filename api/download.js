@@ -39,7 +39,7 @@ export default async (req, res) => {
       cetkBuf = await fetch(`${CDN}${id}/cetk`, {agent})
                  .then(r => r.ok ? r.arrayBuffer() : null);
       if (cetkBuf) archive.append(Buffer.from(cetkBuf), {name: `${id}-cetk`});
-    } catch {}
+    } catch(e) {}
 
     for (const c of contents) {
       const url = `${CDN}${id}/${c.cid}`;
