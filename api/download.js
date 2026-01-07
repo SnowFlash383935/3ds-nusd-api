@@ -33,9 +33,7 @@ export default async (req, res) => {
     try {
       cetkBuf = await fetch(`${CDN}${id}/cetk`, {agent}).then(r => r.ok ? r.arrayBuffer() : null);
     } catch {}
-    console.log('sigLen', sigLen,
-            'contentCount', contentCount,
-            'contentInfoCount', contentInfoCount);
+
     /* ---------- 3. Контенты ---------- */
     const contents = parseTmd(tmdBuf); // [{cid,size},…]
 
@@ -65,10 +63,11 @@ function parseTmd(buf) {
   const view = new DataView(buf);
   const sigLen = 4 + view.getUint32(0, false); // длина подписи
   const offHeader = sigLen;                    // начало заголовка
-
   const contentCount     = view.getUint16(offHeader + 0x9E, false);
   const contentInfoCount = view.getUint16(offHeader + 0xA0, false);
-
+  console.log('sigLen', sigLen,
+            'contentCount', contentCount,
+            'contentInfoCount', contentInfoCount);
   let off = offHeader + 0xC4;                  // пропускаем header
   off += contentInfoCount * 0x24;              // пропускаем ContentInfo
 
