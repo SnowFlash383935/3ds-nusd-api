@@ -17,7 +17,6 @@ export default async (req, res) => {
   const id = tid.toLowerCase();
 
   try {
-    /* 1. TMD */
     const tmdUrl = `${CDN}${id}/` + (ver ? `tmd.${ver}` : 'tmd');
     const tmdBuf = await fetch(tmdUrl, {agent}).then(r => {
       if (!r.ok) throw new Error('TMD not found');
@@ -25,15 +24,59 @@ export default async (req, res) => {
     });
     const contents = parseTmd(tmdBuf);
 
-    /* 2. Настраиваем архив */
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition',
       `attachment; filename="${id}${ver ? '-v' + ver : ''}.zip"`);
 
-    const archive = archiver('zip', {store: false}); // можно 'store' для без-сжатия
+    const archive = archiver('zip', {store: false});
     archive.on('error', e => { throw e; });
     archive.pipe(res);
 
+    archive.append(Buffer.from(tmdBuf), {name: `${id}-tmd`});
+
+    let cetkBuf = null;
+    try {
+      cetkBuf = await fetch(`${CDN}${id}/cetk`, {agent})
+                 .then(r => r.ok ? r.arrayBuffer() : null);
+      if (cetkBuf) archive.append(Buffer.from(cetkBuf), {name: `${id}-cetk`});
+    } catch {}
+
+    for (const c of contents) {
+      const url = `${CDN}${id}/${c.cid}`;
+      const resp = await fetch(url, {agent});
+      if (!resp.ok) throw new Error(`Content ${c.cid} not found`);
+      archive.append(resp.body, {name: `${id}-${c.cid}.app`});
+    }
+
+    await archive.finalize();
+  } catch (e) {
+    if (!res.headersSent) res.status(500).json({error: e.message || e.toString()});
+  }
+};
+
+function parseTmd(buf) {
+  const view = new DataView(buf);
+  const sigType = view.getUint32(0, false);
+  let sigLen = 4;
+  switch (sigType) {
+    case 0x00010000: sigLen += 0x200 + 0x3C; break;
+    case 0x00010001: sigLen += 0x100 + 0x3C; break;
+    case 0x00010002: sigLen += 0x3C + 0x40; break;
+    default: sigLen = 0x100 + 0x3C;
+  }
+  const offHeader = sigLen;
+  const contentCount = view.getUint16(offHeader + 0x9E, false);
+  const contentInfoCount = view.getUint16(offHeader + 0xA0, false);
+  let off = offHeader + 0xC4 + contentInfoCount * 0x24;
+  const contents = [];
+  for (let i = 0; i < contentCount; i++) {
+    const cid = view.getUint32(off, false);
+    const size = view.getBigUint64(off + 8, false);
+    contents.push({cid: cid.toString(16).padStart(8, '0'), size});
+    off += 0x30;
+  }
+  return contents;
+}
     /* 3. Добавляем файлы */
     archive.append(Buffer.from(tmdBuf), {name: `${id}-tmd`});
 
