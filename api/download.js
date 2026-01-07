@@ -65,9 +65,9 @@ function parseTmd(buf) {
   const offHeader = sigLen;                    // начало заголовка
   const contentCount     = view.getUint16(offHeader + 0x9E, false);
   const contentInfoCount = view.getUint16(offHeader + 0xA0, false);
-  console.log('sigLen', sigLen,
+  return res.status(500).json({error: ('sigLen', sigLen,
             'contentCount', contentCount,
-            'contentInfoCount', contentInfoCount);
+            'contentInfoCount', contentInfoCount)});
   let off = offHeader + 0xC4;                  // пропускаем header
   off += contentInfoCount * 0x24;              // пропускаем ContentInfo
 
