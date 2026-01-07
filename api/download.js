@@ -1,16 +1,13 @@
 import fetch from 'node-fetch';
+import https from 'https';
 import {PassThrough} from 'stream';
 import yauzl from 'yauzl-promise';
 import {Buffer} from 'buffer';
-import https from 'https';
-
-// один агент на весь модуль
-const agent = new https.Agent({ rejectUnauthorized: false });
 
 const CDN = 'https://nus.cdn.c.shop.nintendowifi.net/ccs/download/';
+const agent = new https.Agent({ rejectUnauthorized: false });
 
 export default async (req, res) => {
-  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET');
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -21,61 +18,79 @@ export default async (req, res) => {
   const id = tid.toLowerCase();
 
   try {
-    /* ---------- 1. TMD ---------- */
     const tmdUrl = `${CDN}${id}/` + (ver ? `tmd.${ver}` : 'tmd');
-    const tmdBuf = await fetch(tmdUrl, {agent}).then(r => {
+    const tmdBuf = await fetch(tmdUrl, { agent }).then(r => {
       if (!r.ok) throw new Error('TMD not found');
       return r.arrayBuffer();
     });
 
-    /* ---------- 2. Ticket ---------- */
-    let cetkBuf = null;
-    try {
-      cetkBuf = await fetch(`${CDN}${id}/cetk`, {agent}).then(r => r.ok ? r.arrayBuffer() : null);
-    } catch {}
-
-    /* ---------- 3. Контенты ---------- */
-    const contents = parseTmd(tmdBuf); // [{cid,size},…]
-
-    /* ---------- 4. Формируем ZIP на лету ---------- */
+    const contents = parseTmd(tmdBuf);
+    
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${id}${ver ? '-v'+ver : ''}.zip"`);
 
     const zip = new yauzl.ZipWriter(new PassThrough());
-    zip.pipe(res); // сразу в ответ
+    zip.pipe(res);
 
     await zip.addBuffer(Buffer.from(tmdBuf), `${id}-tmd`);
-    if (cetkBuf) await zip.addBuffer(Buffer.from(cetkBuf), `${id}-cetk`);
+
+    let cetkBuf = null;
+    try {
+      cetkBuf = await fetch(`${CDN}${id}/cetk`, { agent }).then(r => r.ok ? r.arrayBuffer() : null);
+      if (cetkBuf) await zip.addBuffer(Buffer.from(cetkBuf), `${id}-cetk`);
+    } catch {}
 
     for (const c of contents) {
       const url = `${CDN}${id}/${c.cid}`;
-      const stream = (await fetch(url, {agent})).body;
-      await zip.addStream(stream, `${id}-${c.cid}.app`, {size: c.size});
+      const resp = await fetch(url, { agent });
+      if (!resp.ok) throw new Error(`Content ${c.cid} not found`);
+      
+      const stream = resp.body;
+      await zip.addStream(stream, `${id}-${c.cid}.app`, {size: Number(c.size)});
     }
+    
     await zip.end();
   } catch (e) {
-    res.status(500).json({error: e.message || e});
+    res.status(500).json({error: e.message || e.toString()});
   }
 };
 
-/* ---------- простейший TMD-парсер ---------- */
 function parseTmd(buf) {
   const view = new DataView(buf);
-  const sigLen = 4 + view.getUint32(0, false); // длина подписи
-  const offHeader = sigLen;                    // начало заголовка
-  const contentCount     = view.getUint16(offHeader + 0x9E, false);
+  
+  // Определяем длину подписи
+  const sigType = view.getUint32(0, false);
+  let sigLen = 4;
+  switch (sigType) {
+    case 0x00010000: sigLen += 0x200 + 0x3C; break; // RSA-4096
+    case 0x00010001: sigLen += 0x100 + 0x3C; break; // RSA-2048
+    case 0x00010002: sigLen += 0x3C + 0x40; break;  // ECDSA
+    default: throw new Error('Unknown signature type');
+  }
+
+  // Заголовок TMD
+  const offHeader = sigLen;
+  const contentCount = view.getUint16(offHeader + 0x9E, false);
+  
+  // Пропускаем переменное количество ContentInfo записей
   const contentInfoCount = view.getUint16(offHeader + 0xA0, false);
-  let off = offHeader + 0xC4;                  // пропускаем header
-  off += contentInfoCount * 0x24;              // пропускаем ContentInfo
-  console.error('sigLen', sigLen,
-            'contentCount', contentCount,
-            'contentInfoCount', contentInfoCount);
-  const arr = [];
+  let off = offHeader + 0xC4 + (contentInfoCount * 0x24);
+
+  const contents = [];
   for (let i = 0; i < contentCount; i++) {
-    const cid  = view.getUint32(off, false);
+    const cid = view.getUint32(off, false);
+    const index = view.getUint16(off + 4, false);
+    const type = view.getUint16(off + 6, false);
     const size = view.getBigUint64(off + 8, false);
-    arr.push({cid: cid.toString(16).padStart(8, '0'), size});
+    
+    contents.push({
+      cid: cid.toString(16).padStart(8, '0'),
+      size,
+      index,
+      type
+    });
     off += 0x30;
   }
-  return arr;
+  
+  return contents;
 }
