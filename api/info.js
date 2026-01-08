@@ -118,23 +118,3 @@ function getHex(view, byteOffset, length) {
   }
   return bytes.join('');
 }
-  /* 2. заголовок (fixed 0xC4 байта) */
-  const offHeader = sigLen;
-  const contentCount = v.getUint16(offHeader + 0x9E, false);   // +1DE hex
-  const titleVersion = v.getUint16(offHeader + 0x9C, false);   // +1DC hex
-
-  /* 3. Content Info Records (64×0x24 = 0x900) – прыгаем */
-  const offContentInfo = offHeader + 0xC4;          // +204 hex
-  const offChunks = offContentInfo + 0x900;         // +B04 hex
-
-  /* 4. читаем Content Chunk-и */
-  const contents = [];
-  for (let i = 0; i < contentCount; i++) {
-    const off = offChunks + i * 0x30;
-    const cid  = v.getUint32(off, false);
-    const size = v.getBigUint64(off + 8, false);
-    contents.push({cid: cid.toString(16).padStart(8,'0'), size: size.toString()});
-  }
-
-  return {titleVersion, contentCount, contents};
-}
