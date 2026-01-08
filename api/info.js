@@ -38,7 +38,9 @@ function parseTmdFull(buffer) {
     case 0x00010000: signatureLength = 0x200; break; // RSA-4096
     case 0x00010001: signatureLength = 0x100; break; // RSA-2048
     case 0x00010002: signatureLength = 0x3C; break;  // ECDSA
-    default: throw new Error("Unknown signature type");
+    case 0x00010004: signatureLength = 0x100; break; // RSA-2048 (SHA256) - добавлено
+    case 0x00010005: signatureLength = 0x200; break; // RSA-4096 (SHA256) - добавлено
+    default: throw new Error(`Unknown signature type: 0x${signatureType.toString(16).padStart(8, '0')}`);
   }
 
   // Пропускаем подпись и выравнивание
