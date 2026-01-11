@@ -104,9 +104,6 @@ function parseTid(tid) {
     typeDescription = typeMap[type].description;
   }
   
-  // Как выяснилось, region code всегда 02, поэтому не будем включать его в результат
-  // Это может быть связано с тем, что это "worldwide" версия
-  
   return {
     value: normalizedTid,
     structure: {
@@ -125,49 +122,49 @@ function parseTid(tid) {
           value: flags,
           decimal: parseInt(flags, 16)
         }
-        // Убрали region, так как он всегда 02
       }
     }
   };
 }
 
 function parseTmd(buffer) {
-  if (buffer.length < 0x100) {
+  if (buffer.length < 0x140) {
     throw new Error('Invalid TMD buffer size');
   }
   
-  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-  
   // Определение длины сигнатуры
-  let sigLen = 4;
-  if (buffer.length >= 4) {
-    const sigType = view.getUint32(0, false);
-    switch (sigType) {
-      case 0x00010000: // RSA-2048
-        sigLen += 0x200 + 0x3C;
-        break;
-      case 0x00010001: // RSA-1024
-        sigLen += 0x100 + 0x3C;
-        break;
-      case 0x00010002: // Elliptic Curve
-        sigLen += 0x3C + 0x40;
-        break;
-      default:
-        // Неизвестный тип сигнатуры, используем стандартную длину
-        sigLen = 0x140; // Стандартная длина для RSA-2048
-    }
-  }
+  const sigType = (buffer[0] << 24) | (buffer[1] << 16) | (buffer[2] << 8) | buffer[3];
   
-  // Проверка, что буфер достаточно большой
-  if (buffer.length < sigLen + 0xC4) {
-    throw new Error('TMD buffer too small');
+  let sigLen = 4;
+  switch (sigType) {
+    case 0x00010000: // RSA-2048
+      sigLen += 0x200 + 0x3C;
+      break;
+    case 0x00010001: // RSA-1024
+      sigLen += 0x100 + 0x3C;
+      break;
+    case 0x00010002: // Elliptic Curve
+      sigLen += 0x3C + 0x40;
+      break;
+    case 0x00010003: // RSA-4096
+      sigLen += 0x400 + 0x3C;
+      break;
+    default:
+      sigLen = 0x140; // По умолчанию RSA-2048
   }
   
   const offHeader = sigLen;
   
+  // Проверка, что буфер достаточно большой
+  if (buffer.length < offHeader + 0x9C + 8) {
+    throw new Error('TMD buffer too small');
+  }
+  
   // Извлечение информации из заголовка TMD
-  const issuer = String.fromCharCode(...buffer.slice(offHeader, offHeader + 0x40))
-    .replace(/\0.*$/, ''); // Убираем null-terminator и всё после него
+  let issuer = '';
+  for (let i = 0; i < 0x40 && buffer[offHeader + i] !== 0; i++) {
+    issuer += String.fromCharCode(buffer[offHeader + i]);
+  }
   
   const version = buffer[offHeader + 0x40];
   const caCrlVersion = buffer[offHeader + 0x41];
@@ -194,19 +191,21 @@ function parseTmd(buffer) {
   // Boot Content Index (2 байта)
   const bootContent = (buffer[offHeader + 0xA0] << 8) | buffer[offHeader + 0xA1];
   
-  // Парсинг содержимого
+  // Content Info Records Count (2 байта)
   const contentInfoCount = (buffer[offHeader + 0xA2] << 8) | buffer[offHeader + 0xA3];
   
   // Переходим к списку содержимого
-  let off = offHeader + 0xC4 + contentInfoCount * 0x24;
+  const contentOffset = offHeader + 0xC4 + contentInfoCount * 0x24;
   
   // Проверка, что буфер достаточно большой
-  if (buffer.length < off + contentCount * 0x30) {
+  if (buffer.length < contentOffset + contentCount * 0x30) {
     throw new Error('TMD buffer too small for content entries');
   }
   
   const contents = [];
   for (let i = 0; i < contentCount; i++) {
+    const off = contentOffset + i * 0x30;
+    
     // Content ID (4 байта)
     const cid = (buffer[off] << 24) | (buffer[off + 1] << 16) | 
                (buffer[off + 2] << 8) | buffer[off + 3];
@@ -233,11 +232,9 @@ function parseTmd(buffer) {
       id: cid.toString(16).padStart(8, '0'),
       index: index,
       type: contentType,
-      size: size.toString(),
+      size: Number(size), // Преобразуем в число для удобства
       hash: hash
     });
-    
-    off += 0x30;
   }
   
   return {
@@ -257,43 +254,45 @@ function parseTmd(buffer) {
 }
 
 function parseCetk(buffer) {
-  if (buffer.length < 0x100) {
+  if (buffer.length < 0x140) {
     throw new Error('Invalid CETK buffer size');
   }
   
-  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  // Определение длины сигнатуры
+  const sigType = (buffer[0] << 24) | (buffer[1] << 16) | (buffer[2] << 8) | buffer[3];
   
-  // Определение длины сигнатуры (аналогично TMD)
   let sigLen = 4;
-  if (buffer.length >= 4) {
-    const sigType = view.getUint32(0, false);
-    switch (sigType) {
-      case 0x00010000: // RSA-2048
-        sigLen += 0x200 + 0x3C;
-        break;
-      case 0x00010001: // RSA-1024
-        sigLen += 0x100 + 0x3C;
-        break;
-      case 0x00010002: // Elliptic Curve
-        sigLen += 0x3C + 0x40;
-        break;
-      default:
-        sigLen = 0x140; // Стандартная длина для RSA-2048
-    }
+  switch (sigType) {
+    case 0x00010000: // RSA-2048
+      sigLen += 0x200 + 0x3C;
+      break;
+    case 0x00010001: // RSA-1024
+      sigLen += 0x100 + 0x3C;
+      break;
+    case 0x00010002: // Elliptic Curve
+      sigLen += 0x3C + 0x40;
+      break;
+    case 0x00010003: // RSA-4096
+      sigLen += 0x400 + 0x3C;
+      break;
+    default:
+      sigLen = 0x140; // По умолчанию RSA-2048
   }
   
   const offHeader = sigLen;
   
   // Проверка минимального размера
-  if (buffer.length < offHeader + 0x300) {
+  if (buffer.length < offHeader + 0x200) {
     throw new Error('CETK buffer too small');
   }
   
   // Извлечение информации из заголовка CETK
-  const issuer = String.fromCharCode(...buffer.slice(offHeader, offHeader + 0x40))
-    .replace(/\0.*$/, ''); // Убираем null-terminator и всё после него
+  let issuer = '';
+  for (let i = 0; i < 0x40 && buffer[offHeader + i] !== 0; i++) {
+    issuer += String.fromCharCode(buffer[offHeader + i]);
+  }
   
-  // Title Key (16 байт)
+  // Title Key (16 байт) - начинается с offset 0x7F относительно начала заголовка
   let titleKey = '';
   for (let i = 0; i < 16; i++) {
     titleKey += buffer[offHeader + 0x7F + i].toString(16).padStart(2, '0');
