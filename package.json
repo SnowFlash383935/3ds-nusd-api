@@ -1,7 +1,7 @@
 {
   "name": "3ds-nusd-api",
   "version": "1.0.0",
-  "type": "module",
+  "type": "commonjs",
   "dependencies": {
     "node-fetch": "^3.3.2",
     "archiver": "^7.0.1"
