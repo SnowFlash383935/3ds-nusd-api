@@ -33,20 +33,15 @@ module.exports = async (req, res) => {
     
     try {
         // Здесь должна быть логика извлечения информации из TID
-        // Для демонстрации создадим фиктивные данные
-        
         // Преобразуем TID в верхний регистр для единообразия
-        const normalizedTid = tid.toUpperCase();
+        const normalizedTid = tid.toUpperCase().padStart(16, '0');
         
         // Пример декодирования информации из TID для Nintendo 3DS
-        // TID в Nintendo 3DS обычно состоит из 16 символов (64 бита)
-        // Первые 8 символов - это категория/тип контента
-        // Следующие 8 символов - уникальный идентификатор
-        
         let category = 'Unknown';
         let type = 'Unknown';
         let name = 'Unknown Title';
         let region = 'Unknown';
+        let publisher = 'Unknown';
         
         // Простая эвристика для определения категории по первым символам
         if (normalizedTid.length >= 8) {
@@ -75,41 +70,63 @@ module.exports = async (req, res) => {
             }
         }
         
-        // Эвристика для определения региона по последним символам
-        if (normalizedTid.length >= 16) {
-            const suffix = normalizedTid.substring(normalizedTid.length - 4);
-            const regionCode = parseInt(suffix, 16) & 0xFF; // Берем младший байт
-            
-            // Упрощенная таблица регионов
-            switch(regionCode) {
-                case 0x00:
-                    region = 'Japan';
-                    break;
-                case 0x01:
-                    region = 'North America';
-                    break;
-                case 0x02:
-                    region = 'Europe';
-                    break;
-                case 0x03:
-                    region = 'Australia';
-                    break;
-                case 0x04:
-                    region = 'China';
-                    break;
-                case 0x05:
-                    region = 'Korea';
-                    break;
-                case 0x06:
-                    region = 'Taiwan';
-                    break;
-                default:
-                    region = 'World/Unknown';
-            }
-        }
+        // Таблица известных тайтлов
+        const knownTitles = {
+            '0004003000009402': { name: 'Internet Browser', region: 'USA', publisher: 'Nintendo' },
+            '0004003000008F02': { name: 'Internet Browser', region: 'Europe', publisher: 'Nintendo' },
+            '0004003000008B02': { name: 'Internet Browser', region: 'Japan', publisher: 'Nintendo' },
+            '0004003000009502': { name: 'Internet Browser', region: 'Australia', publisher: 'Nintendo' },
+            '0004003000009902': { name: 'Internet Browser', region: 'Korea', publisher: 'Nintendo' },
+            '0004003000009802': { name: 'Internet Browser', region: 'China', publisher: 'Nintendo' },
+            '0004003000008602': { name: 'Camera Applet', region: 'USA', publisher: 'Nintendo' },
+            '0004003000008702': { name: 'Friends List', region: 'USA', publisher: 'Nintendo' },
+            '0004003000008802': { name: 'Game Notes', region: 'USA', publisher: 'Nintendo' }
+        };
         
-        // Генерируем имя на основе TID
-        name = `Title ${normalizedTid}`;
+        // Проверяем, есть ли информация о тайтле в таблице известных тайтлов
+        if (knownTitles[normalizedTid]) {
+            const titleInfo = knownTitles[normalizedTid];
+            name = titleInfo.name;
+            region = titleInfo.region;
+            publisher = titleInfo.publisher;
+        } else {
+            // Если тайтл не найден в таблице, пытаемся определить регион по другому методу
+            // Для 3DS регион часто определяется по последним 2 символам (регион-код)
+            if (normalizedTid.length >= 16) {
+                const regionCodeHex = normalizedTid.substring(14, 16);
+                const regionCode = parseInt(regionCodeHex, 16);
+                
+                // Таблица регионов для 3DS
+                switch(regionCode) {
+                    case 0x00:
+                        region = 'Japan';
+                        break;
+                    case 0x01:
+                        region = 'USA';
+                        break;
+                    case 0x02:
+                        region = 'Europe';
+                        break;
+                    case 0x03:
+                        region = 'Australia';
+                        break;
+                    case 0x04:
+                        region = 'China';
+                        break;
+                    case 0x05:
+                        region = 'Korea';
+                        break;
+                    case 0x06:
+                        region = 'Taiwan';
+                        break;
+                    default:
+                        region = 'World/Unknown';
+                }
+            }
+            
+            // Генерируем имя на основе TID если не нашли в таблице
+            name = `Title ${normalizedTid}`;
+        }
         
         // Отправляем результат
         res.status(200).json({
@@ -119,6 +136,7 @@ module.exports = async (req, res) => {
                 type,
                 name,
                 region,
+                publisher,
                 raw: {
                     full: normalizedTid,
                     prefix: normalizedTid.substring(0, 8),
@@ -131,3 +149,4 @@ module.exports = async (req, res) => {
         res.status(500).json({ error: 'Internal Server Error' });
     }
 };
+                                 
