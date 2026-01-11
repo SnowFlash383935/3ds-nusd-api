@@ -77,11 +77,6 @@ function parseTid(tid) {
   const uniqueId = normalizedTid.substring(8, 12);
   const variant = normalizedTid.substring(12, 16);
   
-  // Разбор поля Variant
-  const flags = variant.substring(0, 2); // Старший байт
-  const regionCodeHex = variant.substring(2, 4); // Младший байт
-  const regionCode = parseInt(regionCodeHex, 16);
-  
   // Определение типа контента
   let category = 'Unknown';
   let typeDescription = 'Unknown';
@@ -117,22 +112,18 @@ function parseTid(tid) {
         decimal: parseInt(uniqueId, 16)
       },
       variant: {
-        value: variant,
-        flags: {
-          value: flags,
-          decimal: parseInt(flags, 16)
-        }
+        value: variant
       }
     }
   };
 }
 
 function parseTmd(buffer) {
-  if (buffer.length < 0x140) {
+  if (buffer.length < 4) {
     throw new Error('Invalid TMD buffer size');
   }
   
-  // Определение длины сигнатуры
+  // Определение длины сигнатуры по типу
   const sigType = (buffer[0] << 24) | (buffer[1] << 16) | (buffer[2] << 8) | buffer[3];
   
   let sigLen = 4;
@@ -150,13 +141,13 @@ function parseTmd(buffer) {
       sigLen += 0x400 + 0x3C;
       break;
     default:
-      sigLen = 0x140; // По умолчанию RSA-2048
+      sigLen = 0x140; // По умолчанию
   }
   
   const offHeader = sigLen;
   
   // Проверка, что буфер достаточно большой
-  if (buffer.length < offHeader + 0x9C + 8) {
+  if (buffer.length < offHeader + 0xA4) {
     throw new Error('TMD buffer too small');
   }
   
@@ -185,44 +176,46 @@ function parseTmd(buffer) {
   // Title Version (2 байта)
   const titleVersion = (buffer[offHeader + 0x50] << 8) | buffer[offHeader + 0x51];
   
-  // Content Count (2 байта)
+  // Content Count (2 байта) - смещение 0x9E
   const contentCount = (buffer[offHeader + 0x9E] << 8) | buffer[offHeader + 0x9F];
   
-  // Boot Content Index (2 байта)
+  // Boot Content (2 байта) - смещение 0xA0
   const bootContent = (buffer[offHeader + 0xA0] << 8) | buffer[offHeader + 0xA1];
   
-  // Content Info Records Count (2 байта)
+  // Content Info Count (2 байта) - смещение 0xA2
   const contentInfoCount = (buffer[offHeader + 0xA2] << 8) | buffer[offHeader + 0xA3];
   
   // Переходим к списку содержимого
-  const contentOffset = offHeader + 0xC4 + contentInfoCount * 0x24;
+  // Сначала идут записи Content Info (contentInfoCount * 0x24 байт)
+  // Затем сами записи о содержимом
+  const contentListOffset = offHeader + 0xC4 + contentInfoCount * 0x24;
   
   // Проверка, что буфер достаточно большой
-  if (buffer.length < contentOffset + contentCount * 0x30) {
+  if (buffer.length < contentListOffset + contentCount * 0x30) {
     throw new Error('TMD buffer too small for content entries');
   }
   
   const contents = [];
   for (let i = 0; i < contentCount; i++) {
-    const off = contentOffset + i * 0x30;
+    const off = contentListOffset + i * 0x30;
     
-    // Content ID (4 байта)
-    const cid = (buffer[off] << 24) | (buffer[off + 1] << 16) | 
-               (buffer[off + 2] << 8) | buffer[off + 3];
+    // Content ID (4 байта) - смещение 0x00
+    const cid = ((buffer[off] << 24) | (buffer[off + 1] << 16) | 
+                (buffer[off + 2] << 8) | buffer[off + 3]) >>> 0; // Беззнаковое
     
-    // Content Index (2 байта)
+    // Content Index (2 байта) - смещение 0x04
     const index = (buffer[off + 4] << 8) | buffer[off + 5];
     
-    // Content Type (2 байта)
+    // Content Type (2 байта) - смещение 0x06
     const contentType = (buffer[off + 6] << 8) | buffer[off + 7];
     
-    // Content Size (8 байт)
-    let size = 0n;
+    // Content Size (8 байт) - смещение 0x08
+    let size = 0;
     for (let j = 0; j < 8; j++) {
-      size = (size << 8n) | BigInt(buffer[off + 8 + j]);
+      size = size * 256 + buffer[off + 8 + j];
     }
     
-    // SHA-256 Hash (32 байта)
+    // SHA-256 Hash (32 байта) - смещение 0x10
     let hash = '';
     for (let j = 0; j < 32; j++) {
       hash += buffer[off + 16 + j].toString(16).padStart(2, '0');
@@ -232,7 +225,7 @@ function parseTmd(buffer) {
       id: cid.toString(16).padStart(8, '0'),
       index: index,
       type: contentType,
-      size: Number(size), // Преобразуем в число для удобства
+      size: size,
       hash: hash
     });
   }
@@ -254,11 +247,11 @@ function parseTmd(buffer) {
 }
 
 function parseCetk(buffer) {
-  if (buffer.length < 0x140) {
+  if (buffer.length < 4) {
     throw new Error('Invalid CETK buffer size');
   }
   
-  // Определение длины сигнатуры
+  // Определение длины сигнатуры по типу
   const sigType = (buffer[0] << 24) | (buffer[1] << 16) | (buffer[2] << 8) | buffer[3];
   
   let sigLen = 4;
@@ -276,7 +269,7 @@ function parseCetk(buffer) {
       sigLen += 0x400 + 0x3C;
       break;
     default:
-      sigLen = 0x140; // По умолчанию RSA-2048
+      sigLen = 0x140; // По умолчанию
   }
   
   const offHeader = sigLen;
@@ -292,31 +285,31 @@ function parseCetk(buffer) {
     issuer += String.fromCharCode(buffer[offHeader + i]);
   }
   
-  // Title Key (16 байт) - начинается с offset 0x7F относительно начала заголовка
+  // Title Key (16 байт) - смещение 0x7F от начала заголовка
   let titleKey = '';
   for (let i = 0; i < 16; i++) {
     titleKey += buffer[offHeader + 0x7F + i].toString(16).padStart(2, '0');
   }
   
-  // Ticket ID (8 байт)
+  // Ticket ID (8 байт) - смещение 0x90
   let ticketId = '';
   for (let i = 0; i < 8; i++) {
     ticketId += buffer[offHeader + 0x90 + i].toString(16).padStart(2, '0');
   }
   
-  // Console ID (4 байта)
+  // Console ID (4 байта) - смещение 0x98
   let consoleId = '';
   for (let i = 0; i < 4; i++) {
     consoleId += buffer[offHeader + 0x98 + i].toString(16).padStart(2, '0');
   }
   
-  // Title ID (8 байт)
+  // Title ID (8 байт) - смещение 0x9C
   let titleId = '';
   for (let i = 0; i < 8; i++) {
     titleId += buffer[offHeader + 0x9C + i].toString(16).padStart(2, '0');
   }
   
-  // Common Key Index
+  // Common Key Index - смещение 0x1BF
   const commonKeyIndex = buffer[offHeader + 0x1BF];
   
   return {
